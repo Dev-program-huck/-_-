@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>Найди клад</title>
+    <style>
+        body {
+            text-align: center;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            font-size: 1.8rem;
+            margin: 10px 0;
+        }
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(30px, 1fr));
+            gap: 4px;
+            margin: 15px auto;
+            width: 100%;
+            max-width: 500px;
+            background-color: #fff;
+            padding: 10px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            box-sizing: border-box;
+        }
+        .cell {
+            aspect-ratio: 1 / 1;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            transition: 0.2s;
+            border-radius: 6px;
+            box-shadow: inset 0 -2px 0 rgba(0,0,0,0.1);
+            position: relative;
+        }
+        .cell:hover {
+            background-color: #ddd;
+        }
+        .treasure {
+            background-color: gold;
+            box-shadow: inset 0 -2px 0 #b8860b;
+        }
+        .cell.opened::after {
+            content: "✕";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            color: #666;
+            font-weight: bold;
+            line-height: 1;
+        }
+        #stats, #medals, #message {
+            font-size: 18px;
+            margin: 15px 10px;
+            padding: 8px 12px;
+            background-color: white;
+            border-radius: 30px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        #medals h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+        }
+        #medal-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .medal-icon {
+            font-size: 35px;
+            filter: drop-shadow(0 0 4px gold);
+        }
+        @media (max-width: 600px) {
+            h1 { font-size: 1.5rem; }
+            #stats, #medals, #message { font-size: 16px; margin: 10px 5px; }
+            .medal-icon { font-size: 30px; }
+            #grid { gap: 3px; padding: 8px; }
+            .cell.opened::after { font-size: 1.2rem; }
+        }
+        #fullscreen-ad {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.95);
+            color: white;
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+        #ad-content {
+            background: white;
+            color: black;
+            padding: 25px 20px;
+            border-radius: 20px;
+            max-width: 90%;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        #ad-content h2 {
+            margin-top: 0;
+            font-size: 1.5rem;
+        }
+        #ad-content p {
+            font-size: 1.1rem;
+            margin: 15px 0;
+        }
+        #ad-content a {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 12px 25px;
+            background: gold;
+            color: black;
+            text-decoration: none;
+            border-radius: 40px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            border: none;
+            box-shadow: 0 4px 0 #b8860b;
+        }
+        #close-ad {
+            margin-top: 25px;
+            padding: 12px 30px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 40px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 0 #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>💰 Найди клад!</h1>
+    <div id="grid"></div>
+
+    <div id="stats">
+        Попыток в этой игре: <span id="attempt-count">0</span>
+    </div>
+
+    <div id="medals">
+        <h3>🏅 Твои медали (клад за < 16 попыток):</h3>
+        <div id="medal-list"></div>
+    </div>
+
+    <div id="message">👆 Кликай по клеткам, ищи золото!</div>
+
+    <div id="fullscreen-ad">
+        <div id="ad-content"></div>
+        <button id="close-ad">Закрыть рекламу</button>
+    </div>
+
+    <script>
+        (function() {
+            // ----- Элементы -----
+            const grid = document.getElementById('grid');
+            const messageDiv = document.getElementById('message');
+            const attemptSpan = document.getElementById('attempt-count');
+            const medalListDiv = document.getElementById('medal-list');
+            const adBlock = document.getElementById('fullscreen-ad');
+            const adContent = document.getElementById('ad-content');
+            const closeAd = document.getElementById('close-ad');
+
+            // ----- Переменные игры -----
+            let treasureIndex;      // индекс клетки с кладом (0-63)
+            let gameActive = true;   // разрешены ли клики
+            let attempts = 0;
+            let medals = 0;
+
+            // ----- Рекламные объявления (замени ссылки на свои) -----
+            const ads = [
+                {
+                    title: "🔥 Скидка 30% на скины в Among Us!",
+                    description: "Только сегодня. Успей купить!",
+                    link: "https://пример1.com/партнерская-ссылка",
+                    buttonText: "Посмотреть"
+                },
+                {
+                    title: "🎮 Научись создавать такие же игры",
+                    description: "Бесплатный урок по Python и HTML для детей.",
+                    link: "https://пример2.com/партнерская-ссылка",
+                    buttonText: "Записаться"
+                },
+                {
+                    title: "🖱️ Игровая мышка со скидкой",
+                    description: "Для победы в шутерах. Доставка бесплатно.",
+                    link: "https://пример3.com/партнерская-ссылка",
+                    buttonText: "Купить"
+                }
+            ];
+
+            // ----- Проверка доступности localStorage (чтобы избежать ошибок) -----
+            function isLocalStorageAvailable() {
+                try {
+                    const testKey = '__test__';
+                    localStorage.setItem(testKey, testKey);
+                    localStorage.removeItem(testKey);
+                    return true;
+                } catch (e) {
+                    console.warn('localStorage недоступен, сохранение не работает');
+                    return false;
+                }
+            }
+
+            // ----- Сохранение игры (только если localStorage доступен) -----
+            function saveGame() {
+                if (!gameActive || !isLocalStorageAvailable()) return;
+                try {
+                    const openedCells = [...document.querySelectorAll('.cell.opened')];
+                    const openedIndexes = openedCells.map(cell => parseInt(cell.dataset.index));
+                    const gameState = {
+                        treasureIndex: treasureIndex,
+                        attempts: attempts,
+                        medals: medals,
+                        openedIndexes: openedIndexes
+                    };
+                    localStorage.setItem('treasureGame', JSON.stringify(gameState));
+                } catch (e) {
+                    console.warn('Ошибка сохранения:', e);
+                }
+            }
+
+            // ----- Загрузка игры (если есть сохранение) -----
+            function loadGame() {
+                if (!isLocalStorageAvailable()) return false;
+                try {
+                    const saved = localStorage.getItem('treasureGame');
+                    if (!saved) return false;
+
+                    const gameState = JSON.parse(saved);
+                    // Проверим, что индекс клада в допустимых пределах
+                    if (gameState.treasureIndex === undefined || gameState.treasureIndex < 0 || gameState.treasureIndex > 63) {
+                        return false;
+                    }
+                    treasureIndex = gameState.treasureIndex;
+                    attempts = gameState.attempts;
+                    medals = gameState.medals;
+
+                    attemptSpan.textContent = attempts;
+                    updateMedalsDisplay();
+
+                    if (Array.isArray(gameState.openedIndexes)) {
+                        gameState.openedIndexes.forEach(index => {
+                            const cell = document.querySelector(`.cell[data-index="${index}"]`);
+                            if (cell) cell.classList.add('opened');
+                        });
+                    }
+
+                    gameActive = true;
+                    messageDiv.innerText = '👆 Продолжай искать!';
+                    return true;
+                } catch (e) {
+                    console.warn('Ошибка загрузки сохранения:', e);
+                    return false;
+                }
+            }
+
+            // ----- Создание игрового поля -----
+            function createGrid() {
+                grid.innerHTML = '';
+                for (let i = 0; i < 64; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.index = i;
+
+                    cell.addEventListener('click', function() {
+                        if (!gameActive) return;
+                        if (this.classList.contains('opened')) return;
+
+                        attempts++;
+                        attemptSpan.textContent = attempts;
+
+                        if (i === treasureIndex) {
+                            // Клад найден!
+                            this.classList.add('treasure');
+
+                            if (attempts < 16) {
+                                medals++;
+                                updateMedalsDisplay();
+                                messageDiv.innerText = `🎉 Ты нашёл клад за ${attempts} попыток! + 🏅 медаль! Смотри рекламу.`;
+                            } else {
+                                messageDiv.innerText = `🎉 Ты нашёл клад за ${attempts} попыток! Смотри рекламу.`;
+                            }
+
+                            showRandomAd(); // показывает рекламу и блокирует клики
+                        } else {
+                            // Пустая клетка
+                            this.classList.add('opened');
+                            messageDiv.innerText = `😕 Пусто! Попытка ${attempts}. Ищи дальше.`;
+                            saveGame(); // сохраняем прогресс
+                        }
+                    });
+
+                    grid.appendChild(cell);
+                }
+            }
+
+            // ----- Обновление отображения медалей -----
+            function updateMedalsDisplay() {
+                let medalsHtml = '';
+                for (let i = 0; i < medals; i++) {
+                    medalsHtml += '<span class="medal-icon">🏅</span>';
+                }
+                medalListDiv.innerHTML = medalsHtml;
+            }
+
+            // ----- Показ случайной рекламы -----
+            function showRandomAd() {
+                const randomIndex = Math.floor(Math.random() * ads.length);
+                const ad = ads[randomIndex];
+
+                adContent.innerHTML = `
+                    <h2>${ad.title}</h2>
+                    <p>${ad.description}</p>
+                    <a href="${ad.link}" target="_blank">${ad.buttonText}</a>
+                `;
+
+                adBlock.style.display = 'flex';
+                gameActive = false; // запрещаем клики
+            }
+
+            // ----- Сброс игры (новая партия) -----
+            function resetGame() {
+                // Очищаем все клетки
+                document.querySelectorAll('.cell').forEach(cell => {
+                    cell.classList.remove('treasure', 'opened');
+                });
+
+                // Генерируем новый клад (строго от 0 до 63)
+                treasureIndex = Math.floor(Math.random() * 64);
+                attempts = 0;
+                attemptSpan.textContent = attempts;
+                messageDiv.innerText = '👆 Клад спрятан в новом месте! Ищи снова.';
+                gameActive = true;
+
+                saveGame(); // сохраняем новое состояние
+            }
+
+            // ----- Закрытие рекламы -----
+            closeAd.addEventListener('click', function() {
+                adBlock.style.display = 'none';
+                resetGame(); // после рекламы начинаем новую игру
+            });
+
+            // ----- Инициализация -----
+            createGrid();
+
+            // Пытаемся загрузить сохранение, если не получается — начинаем новую игру
+            if (!loadGame()) {
+                resetGame();
+            }
+        })();
+    </script>
+</body>
+</html>                                                       
